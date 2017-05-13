@@ -39,8 +39,9 @@ ENV PATH ${CUDA_HOME}/bin:$PATH
 ENV LD_LIBRARY_PATH $LD_LIBRARY_PATH:/usr/local/cuda-8.0/lib64
 
 # Install cudnn
-RUN wget http://olin:8000/files/cudnn-8.0-linux-x64-v5.1.tgz
-RUN tar zxf cudnn-8.0-linux-x64-v5.1.tgz
+WORKDIR /opt
+COPY opt/cudnn-8.0-linux-ppc64le-v5.1.tgz /opt
+RUN tar zxf cudnn-8.0-linux-ppc64le-v5.1.tgz
 WORKDIR /opt/cuda
 RUN cp -R * /usr/local/cuda
 ENV CUDNN_PATH /usr/local/cuda/lib64/libcudnn.so
@@ -55,17 +56,6 @@ RUN pip3 install torchvision
 
 # Install scikit image
 RUN pip3 install scikit-image
-
-# Need libpython for treestats build
-RUN apt-get install -y python-dev=2.7.11-1
-RUN apt-get install -y python-pip
-RUN apt-get install -y python-numpy
-RUn apt-get install -y python-scipy
-RUN pip2 install http://download.pytorch.org/whl/cu80/torch-0.1.12.post2-cp27-none-linux_x86_64.whl
-RUN pip2 install torchvision
-RUN pip2 install scikit-image
-RUN pip2 install --upgrade pip
-RUN pip2 install ipython
 
 # Set user specific env
 ENV HOST_UID=1001
