@@ -1,0 +1,9 @@
+# Temp stuff
+*.swp
+*.pyc
+__pycache__
+
+# Files
+data/
+dataset/
+models/

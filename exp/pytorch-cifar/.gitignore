@@ -1,0 +1,9 @@
+# Don't commit data
+data/
+
+# Don't commit pycaches
+__pycache__/
+
+# No temp files
+*.swp
+*.pyc
