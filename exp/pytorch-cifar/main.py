@@ -61,100 +61,92 @@ transform_test = transforms.Compose([
     transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
 ])
 
-acc_file = "exp1.json" 
-acc_dict = {}
-for var in np.arange(0, 1.0, 0.1):
-    acc_dict[var] = {"train": [], "test": []}
 
-    traindata, testdata = noise.get_data(mean=0, var=var)
+trainset = torchvision.datasets.CIFAR10(root='./data', train=True, download=True, transform=transform_train)
+trainloader = torch.utils.data.DataLoader(trainset, batch_size=128, shuffle=True, num_workers=2)
 
-    trainset = torchvision.datasets.CIFAR10(root='./data', train=True, download=True, transform=transform_train)
-    trainset.train_data = traindata
-    trainloader = torch.utils.data.DataLoader(trainset, batch_size=128, shuffle=True, num_workers=2)
+testset = torchvision.datasets.CIFAR10(root='./data', train=False, download=False, transform=transform_test)
+testloader = torch.utils.data.DataLoader(testset, batch_size=100, shuffle=False, num_workers=2)
 
-    testset = torchvision.datasets.CIFAR10(root='./data', train=False, download=False, transform=transform_test)
-    testset.test_data = testdata
-    testloader = torch.utils.data.DataLoader(testset, batch_size=100, shuffle=False, num_workers=2)
+classes = ('plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
 
-    classes = ('plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
+# Model
+if args.resume:
+    # Load checkpoint.
+    print('==> Resuming from checkpoint..')
+    assert os.path.isdir('checkpoint'), 'Error: no checkpoint directory found!'
+    checkpoint = torch.load('./checkpoint/ckpt.t7')
+    net = checkpoint['net']
+    start_epoch = checkpoint['epoch']
+else:
+    print('==> Building model..')
+    net = VGG('VGG19') # 22s train, 2.3s test, 10.3% test after 1 epoch
+    #net = ResNet18() # 22s train, 2.5s test, 24.8% test after 1 epoch
+    #net = ResNeXt29_2x64d() #50s train, 3.5s test, 40.6% test after 1 epoch
+    #net = DenseNet121() #67s train, 5.6s test, 44.9% test after 1 epoch
+    #net = GoogLeNet() # 67s train, 5.2s test, 51.5% test after 1 epoch
 
-    # Model
-    if args.resume:
-        # Load checkpoint.
-        print('==> Resuming from checkpoint..')
-        assert os.path.isdir('checkpoint'), 'Error: no checkpoint directory found!'
-        checkpoint = torch.load('./checkpoint/ckpt.t7')
-        net = checkpoint['net']
-        start_epoch = checkpoint['epoch']
-    else:
-        print('==> Building model..')
-        net = VGG('VGG19') # 22s train, 2.3s test, 10.3% test after 1 epoch
-        #net = ResNet18() # 22s train, 2.5s test, 24.8% test after 1 epoch
-        #net = ResNeXt29_2x64d() #50s train, 3.5s test, 40.6% test after 1 epoch
-        #net = DenseNet121() #67s train, 5.6s test, 44.9% test after 1 epoch
-        #net = GoogLeNet() # 67s train, 5.2s test, 51.5% test after 1 epoch
+if use_cuda:
+    net.cuda()
+    net = torch.nn.DataParallel(net, device_ids=range(torch.cuda.device_count()))
+    cudnn.benchmark = True
 
-    if use_cuda:
-        net.cuda()
-        net = torch.nn.DataParallel(net, device_ids=range(torch.cuda.device_count()))
-        cudnn.benchmark = True
+criterion = nn.CrossEntropyLoss()
+optimizer = optim.SGD(net.parameters(), lr=args.lr, momentum=0.9, weight_decay=5e-4)
 
-    criterion = nn.CrossEntropyLoss()
-    optimizer = optim.SGD(net.parameters(), lr=args.lr, momentum=0.9, weight_decay=5e-4)
+# Training
+def train(epoch):
+    print('\nEpoch: %d' % epoch)
+    net.train()
+    train_loss = 0
+    correct = 0
+    total = 0
+    for batch_idx, (inputs, targets) in enumerate(trainloader):
+        if use_cuda:
+            inputs, targets = inputs.cuda(), targets.cuda()
+        optimizer.zero_grad()
+        inputs, targets = Variable(inputs), Variable(targets)
+        outputs = net(inputs)
+        loss = criterion(outputs, targets)
+        loss.backward()
+        optimizer.step()
 
-    # Training
-    def train(epoch):
-        print('\nEpoch: %d' % epoch)
-        net.train()
-        train_loss = 0
-        correct = 0
-        total = 0
-        for batch_idx, (inputs, targets) in enumerate(trainloader):
-            if use_cuda:
-                inputs, targets = inputs.cuda(), targets.cuda()
-            optimizer.zero_grad()
-            inputs, targets = Variable(inputs), Variable(targets)
-            outputs = net(inputs)
-            loss = criterion(outputs, targets)
-            loss.backward()
-            optimizer.step()
+        train_loss += loss.data[0]
+        _, predicted = torch.max(outputs.data, 1)
+        total += targets.size(0)
+        correct += predicted.eq(targets.data).cpu().sum()
 
-            train_loss += loss.data[0]
-            _, predicted = torch.max(outputs.data, 1)
-            total += targets.size(0)
-            correct += predicted.eq(targets.data).cpu().sum()
+        progress_bar(batch_idx, len(trainloader), 'Loss: %.3f | Acc: %.3f%% (%d/%d)'
+            % (train_loss/(batch_idx+1), 100.*correct/total, correct, total))
+    return correct/total 
 
-            progress_bar(batch_idx, len(trainloader), 'Loss: %.3f | Acc: %.3f%% (%d/%d)'
-                % (train_loss/(batch_idx+1), 100.*correct/total, correct, total))
-        return correct/total 
+def test(epoch):
+    net.eval()
+    test_loss = 0
+    correct = 0
+    total = 0
+    for batch_idx, (inputs, targets) in enumerate(testloader):
+        if use_cuda:
+            inputs, targets = inputs.cuda(), targets.cuda()
+        inputs, targets = Variable(inputs, volatile=True), Variable(targets)
+        outputs = net(inputs)
+        loss = criterion(outputs, targets)
 
-    def test(epoch):
-        net.eval()
-        test_loss = 0
-        correct = 0
-        total = 0
-        for batch_idx, (inputs, targets) in enumerate(testloader):
-            if use_cuda:
-                inputs, targets = inputs.cuda(), targets.cuda()
-            inputs, targets = Variable(inputs, volatile=True), Variable(targets)
-            outputs = net(inputs)
-            loss = criterion(outputs, targets)
+        test_loss += loss.data[0]
+        _, predicted = torch.max(outputs.data, 1)
+        total += targets.size(0)
+        correct += predicted.eq(targets.data).cpu().sum()
 
-            test_loss += loss.data[0]
-            _, predicted = torch.max(outputs.data, 1)
-            total += targets.size(0)
-            correct += predicted.eq(targets.data).cpu().sum()
-
-            progress_bar(batch_idx, len(testloader), 'Loss: %.3f | Acc: %.3f%% (%d/%d)'
-                % (test_loss/(batch_idx+1), 100.*correct/total, correct, total))
-        
-        return correct/total
+        progress_bar(batch_idx, len(testloader), 'Loss: %.3f | Acc: %.3f%% (%d/%d)'
+            % (test_loss/(batch_idx+1), 100.*correct/total, correct, total))
+    
+    return correct/total
 
 
-    for epoch in range(start_epoch, start_epoch+100):
-        train_acc = train(epoch)
-        test_acc = test(epoch)
-        acc_dict[var]["train"].append(train_acc)
-        acc_dict[var]["test"].append(test_acc)
-        with open(acc_file, 'w', encoding='utf8') as fp:
-            json.dump(acc_dict, fp)
+for epoch in range(start_epoch, start_epoch+100):
+    train_acc = train(epoch)
+    test_acc = test(epoch)
+    acc_dict[var]["train"].append(train_acc)
+    acc_dict[var]["test"].append(test_acc)
+    with open(acc_file, 'w', encoding='utf8') as fp:
+        json.dump(acc_dict, fp)
