@@ -31,10 +31,13 @@ import noise
 parser = argparse.ArgumentParser(description='PyTorch CIFAR10 Training')
 parser.add_argument('--lr', default=0.1, type=float, help='learning rate')
 parser.add_argument('--resume', '-r', action='store_true', help='resume from checkpoint')
+parser.add_argument('--model', '-m', type=str, default='model_epoch_100.pth',
+    help='resume from checkpoint')
 args = parser.parse_args()
 
 use_cuda = torch.cuda.is_available()
 start_epoch = 0  # start from epoch 0 or last checkpoint epoch
+model = torch.load(args.model)
 
 class GaussianNoise(object):
     def __init__(self, mean=0, var=1.0):
@@ -45,11 +48,33 @@ class GaussianNoise(object):
         noised = (skimage.util.random_noise(arr.astype(float)/255.0, mode='gaussian', mean=self.mean, var=self.var)*255.0).astype(np.uint8)
         return Image.fromarray(noised)
 
+class SuperResolve(object):
+    def __init__(self, model):
+        self.model = model
+    def __call__(self, img):
+        ybr = img.convert('YCbCr')
+        y, cb, cr = ybr.split()
+        input = torch.autograd.Variable(torchvision.transforms.ToTensor()(y)).view(1, -1, y.size[1], y.size[0])
+        input = input.cuda()
+        out = self.model(input)
+        out = out.cpu()
+        out_img_y = out.data[0].numpy()
+        out_img_y *= 255.0
+        out_img_y = out_img_y.clip(0, 255)
+        out_img_y = Image.fromarray(np.uint8(out_img_y[0]), mode='L')
+
+        out_img_cb = cb.resize(out_img_y.size, Image.BICUBIC)
+        out_img_cr = cr.resize(out_img_y.size, Image.BICUBIC)
+        out_img = Image.merge('YCbCr', [out_img_y, out_img_cb, out_img_cr]).convert('RGB')
+        return out_img
+    
+
 # Data
 print('==> Preparing data..')
 transform_train = transforms.Compose([
     #GaussianNoise(),
-    transforms.RandomCrop(32, padding=4),
+    SuperResolve(model),
+    #transforms.RandomCrop(32, padding=4),
     transforms.RandomHorizontalFlip(),
     transforms.ToTensor(),
     transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
@@ -57,6 +82,7 @@ transform_train = transforms.Compose([
 
 transform_test = transforms.Compose([
     #GaussianNoise(),
+    SuperResolve(model),
     transforms.ToTensor(),
     transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
 ])
@@ -80,7 +106,7 @@ if args.resume:
     start_epoch = checkpoint['epoch']
 else:
     print('==> Building model..')
-    net = VGG('VGG19') # 22s train, 2.3s test, 10.3% test after 1 epoch
+    net = VGG('VGG11_96') # 22s train, 2.3s test, 10.3% test after 1 epoch
     #net = ResNet18() # 22s train, 2.5s test, 24.8% test after 1 epoch
     #net = ResNeXt29_2x64d() #50s train, 3.5s test, 40.6% test after 1 epoch
     #net = DenseNet121() #67s train, 5.6s test, 44.9% test after 1 epoch

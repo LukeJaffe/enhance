@@ -9,7 +9,7 @@ def get_data(mean=0, var=0.01, seed=42):
     np.random.seed(seed)
 
     # Add Gaussian noise to train data
-    trainset = torchvision.datasets.CIFAR10(root='./data', train=True, download=False)
+    trainset = torchvision.datasets.CIFAR10(root='./data', train=True, download=True)
     if var > 0:
         for i,img in enumerate(trainset.train_data):
             trainset.train_data[i] = (skimage.util.random_noise(img.astype(float)/255.0, mode='gaussian', mean=mean, var=var)*255.0).astype(np.uint8)
