@@ -1,0 +1,160 @@
+#!/usr/bin/env python
+
+#-------------------------------------------
+# Command Line Script for \ 
+# Preparing GPU Dependencies for docker/ACE
+# Copyright 2016 LLNL
+# Written by Luke Jaffe <jaffe5@llnl.gov>
+#-------------------------------------------
+
+"""Prepare GPU dependencies for docker/ACE"""
+
+import sys
+import os
+import argparse
+from subprocess import Popen, PIPE
+
+from gpudocker import nvidia
+from gpudocker import utils
+
+# Class to handle shared info about file and link setup
+class Setup(object):
+    def __init__(self, host_dir):
+        # Setup ouptut directories
+        self.bin_dir = os.path.join(host_dir, "bin")
+        self.header_dir = os.path.join(host_dir, "include")
+        lib32_dir = os.path.join(host_dir, "lib32")
+        lib64_dir = os.path.join(host_dir, "lib64")
+        self.lib_dir = {32: lib32_dir, 64: lib64_dir}
+
+        # Get gpu files and links
+        self.bin_list = nvidia.get_bins()
+        self.header_list = nvidia.get_headers()
+        self.lib_list, self.link_list = nvidia.get_libs()
+        
+class Filer(Setup):
+    def __init__(self, host_dir):
+        Setup.__init__(self, host_dir)
+
+    def copy_files(self):
+        # Create output directories on host fs
+        for path in [self.bin_dir, self.header_dir, self.lib_dir[32], self.lib_dir[64]]:
+            if not os.path.exists(path):
+                os.makedirs(path)
+
+        # Copy nvidia files to new directories
+        utils.copy_files(self.bin_list, self.bin_dir) 
+        utils.copy_files(self.header_list, self.header_dir) 
+        utils.copy_files(self.lib_list[32], self.lib_dir[32]) 
+        utils.copy_files(self.lib_list[64], self.lib_dir[64]) 
+
+    def create_links(self):
+        for arch in self.link_list:
+            for target, link_name in self.link_list[arch]:
+                link = os.path.join(self.lib_dir[arch], link_name)
+                if os.path.exists(link):
+                    os.remove(link)
+                os.symlink(target, link)
+
+class Docker(Setup):
+    def __init__(self, host_dir):
+        Setup.__init__(self, host_dir)
+
+    def get_cmd_args(self, docker_cmd, arch=64):
+        ### Create the special bash -c command required for setup
+        # Create symlinks
+        cmd_list = []
+        for target, link_name in self.link_list[arch]:
+            link = os.path.join(self.lib_dir[arch], link_name)
+            cmd = 'ln -sf {} {};'.format(target, link)
+            cmd_list.append(cmd)
+        # Prep environment variables
+        cmd_list.append('export PATH={}:$PATH;'.format(self.bin_dir))
+        cmd_list.append('export LD_LIBRARY_PATH={}:$LD_LIBRARY_PATH;'.format(self.lib_dir[arch]))
+        cmd_list.append('{};'.format(docker_cmd))
+        cmd_string = ' '.join(cmd_list)
+        bash_cmd = "/bin/bash -c '{}'".format(cmd_string)
+        return bash_cmd
+
+    def get_device_args(self):
+        # Tell docker about all needed GPU devices
+        device_args = "--device=/dev/nvidiactl --device=/dev/nvidia-uvm "
+        p = Popen("nvidia-smi --query-gpu=index --format=csv,noheader,nounits", shell=True, stdout=PIPE, stderr=PIPE)
+        stdout, stderr = p.communicate()
+        lines = filter(None, stdout.split("\n"))
+        for line in lines:
+            device_args += "--device=/dev/nvidia{} ".format(line)
+
+        return device_args
+
+    def get_mount_args(self, arch=64):
+        # File mounts
+        bin_mount = utils.get_mount(self.bin_list, self.bin_dir) 
+        header_mount = utils.get_mount(self.header_list, self.header_dir) 
+        lib_mount = utils.get_mount(self.lib_list[arch], self.lib_dir[arch]) 
+
+        # Module path
+        mod_mount = None
+        if os.path.exists('/lib/modules'):
+            mod_mount = "-v {0}:{0} ".format('/lib/modules')
+        elif os.path.exists('/usr/lib/modules'):
+            mod_mount = "-v {0}:{1} ".format('/usr/lib/modules', '/lib/modules')
+        else:
+            raise Exception("No modules found.")
+
+        # sys mount
+        sys_mount = "-v /sys/module/nvidia_uvm:/sys/module/nvidia_uvm "
+
+        mount_args = "{} {} {} {}".format(bin_mount, header_mount, lib_mount, sys_mount)
+        return mount_args
+
+    def run(self, docker_args, docker_image, docker_cmd):
+        device_args = self.get_device_args()
+        mount_args = self.get_mount_args()
+        cmd_args = self.get_cmd_args(docker_cmd)
+
+        docker_cmd =  "docker run --rm {} {} {} {} {}".format(
+            docker_args, device_args, mount_args, docker_image, cmd_args)
+        #print docker_cmd
+
+        proc = Popen(docker_cmd, shell=True)
+        stdout, stderr = proc.communicate()
+
+def main():
+    # Parse common args
+    parser = argparse.ArgumentParser()
+    parser.add_argument("command", type=str, choices=["run", "prep"], help="")
+    parser.add_argument("-d", "--gpu_env", type=utils.check_abs, default="/gpu_env")
+    args = parser.parse_known_args()[0]
+
+    # For docker, mount libs to these dirs, set env for runtime
+    if args.command == "run":
+        ### Get args needed for docker run
+        # arguments supplied to --docker_args must be wrapped in single quotes!
+        parser.add_argument("--docker_args", type=str, default="--net=host")
+        parser.add_argument("-i", "--docker_image", type=str, default="ubuntu:14.04")
+        parser.add_argument("-c", "--docker_cmd", type=str, default="nvidia-smi")
+        args = parser.parse_args()
+        # Print run info
+        #print "~~Running docker image with GPU support~~"
+        #print "{:<10}{}".format("Image:", args.docker_image)
+        #print "{:<10}{}".format("Command:", args.docker_cmd)
+        #print "{:<10}{}".format("Args:", args.docker_args)
+        # Create GPU setup object
+        docker = Docker(args.gpu_env) 
+        # Build and run the docker command
+        docker.run(args.docker_args, args.docker_image, args.docker_cmd)
+
+    # On ACE, create these dirs and copy libs there
+    elif args.command == "prep":
+        # Print message to user
+        print "Setting up GPU env in: {}".format(args.gpu_env)
+        # Create GPU setup object
+        filer = Filer(args.gpu_env) 
+        # Copy libs with copydirs/copytree
+        filer.copy_files()
+        # Create softlinks in the volume_dir
+        filer.create_links()
+
+if __name__=="__main__":
+    main()
