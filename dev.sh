@@ -11,10 +11,10 @@ gpudocker run \
  --net=host \
  -v ${HOME}/.vimrc:/home/username/.vimrc \
  -v ${HOME}/.vim:/home/username/.vim \
- -v `pwd`/examples:/home/username/work/examples \
+ -v `pwd`:/home/username/work \
  -e XAUTHORITY=$XAUTH \
  -e DISPLAY=$DISPLAY \
  -e QT_X11_NO_MITSHM=1 \
  -e QT_CRASH_OUTPUT=/home/username/qt_crash.log \
- -w /home/username/work/examples \
+ -w /home/username/work \
  --privileged"
