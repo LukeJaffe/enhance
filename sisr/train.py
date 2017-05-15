@@ -78,7 +78,7 @@ target_transform = transforms.Compose([
     transforms.ToTensor()
 ])
 
-train_set = torchvision.datasets.STL10(root='./data', split='unlabeled', download=False)
+train_set = torchvision.datasets.STL10(root='./data', split='unlabeled', download=True)
 train_data = ScaledDataset(train_set, input_transform, target_transform)
 training_data_loader = DataLoader(dataset=train_data, num_workers=opt.threads, 
     batch_size=opt.batchSize, shuffle=True)

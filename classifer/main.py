@@ -73,7 +73,7 @@ class SuperResolve(object):
 print('==> Preparing data..')
 transform_train = transforms.Compose([
     #GaussianNoise(),
-    SuperResolve(model),
+    #SuperResolve(model),
     #transforms.RandomCrop(32, padding=4),
     transforms.RandomHorizontalFlip(),
     transforms.ToTensor(),
@@ -82,7 +82,7 @@ transform_train = transforms.Compose([
 
 transform_test = transforms.Compose([
     #GaussianNoise(),
-    SuperResolve(model),
+    #SuperResolve(model),
     transforms.ToTensor(),
     transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
 ])
@@ -106,7 +106,8 @@ if args.resume:
     start_epoch = checkpoint['epoch']
 else:
     print('==> Building model..')
-    net = VGG('VGG11_96') # 22s train, 2.3s test, 10.3% test after 1 epoch
+    net = VGG('VGG11') # 22s train, 2.3s test, 10.3% test after 1 epoch
+    #net = VGG('VGG11_96') # 22s train, 2.3s test, 10.3% test after 1 epoch
     #net = ResNet18() # 22s train, 2.5s test, 24.8% test after 1 epoch
     #net = ResNeXt29_2x64d() #50s train, 3.5s test, 40.6% test after 1 epoch
     #net = DenseNet121() #67s train, 5.6s test, 44.9% test after 1 epoch
@@ -172,7 +173,3 @@ def test(epoch):
 for epoch in range(start_epoch, start_epoch+100):
     train_acc = train(epoch)
     test_acc = test(epoch)
-    acc_dict[var]["train"].append(train_acc)
-    acc_dict[var]["test"].append(test_acc)
-    with open(acc_file, 'w', encoding='utf8') as fp:
-        json.dump(acc_dict, fp)
