@@ -26,18 +26,20 @@ import skimage
 import json
 
 import noise
-
+import upsample
 
 parser = argparse.ArgumentParser(description='PyTorch CIFAR10 Training')
 parser.add_argument('--lr', default=0.1, type=float, help='learning rate')
 parser.add_argument('--resume', '-r', action='store_true', help='resume from checkpoint')
-parser.add_argument('--model', '-m', type=str, default='model_epoch_100.pth',
-    help='resume from checkpoint')
+parser.add_argument('--model', '-m', type=str, default='model_epoch_100.pth')
+parser.add_argument('--super', action='store_true')
+parser.add_argument('--bicubic', action='store_true')
 args = parser.parse_args()
 
 use_cuda = torch.cuda.is_available()
 start_epoch = 0  # start from epoch 0 or last checkpoint epoch
 model = torch.load(args.model)
+model = model.cpu()
 
 class GaussianNoise(object):
     def __init__(self, mean=0, var=1.0):
@@ -55,7 +57,7 @@ class SuperResolve(object):
         ybr = img.convert('YCbCr')
         y, cb, cr = ybr.split()
         input = torch.autograd.Variable(torchvision.transforms.ToTensor()(y)).view(1, -1, y.size[1], y.size[0])
-        input = input.cuda()
+        #input = input.cuda()
         out = self.model(input)
         out = out.cpu()
         out_img_y = out.data[0].numpy()
@@ -67,32 +69,60 @@ class SuperResolve(object):
         out_img_cr = cr.resize(out_img_y.size, Image.BICUBIC)
         out_img = Image.merge('YCbCr', [out_img_y, out_img_cb, out_img_cr]).convert('RGB')
         return out_img
-    
+
+acc_dict = {"train": [], "test": []}
+
+stats_file = None
+if args.super:
+    stats_file = 'super_stats.json'
+elif args.bicubic:
+    stats_file = 'bicubic_stats.json'
+else:
+    stats_file = 'regular_stats.json'
 
 # Data
 print('==> Preparing data..')
-transform_train = transforms.Compose([
-    #GaussianNoise(),
-    #SuperResolve(model),
-    #transforms.RandomCrop(32, padding=4),
-    transforms.RandomHorizontalFlip(),
-    transforms.ToTensor(),
-    transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
-])
+if args.super:
+    transform_train = transforms.Compose([
+        #transforms.RandomCrop(96, padding=4),
+        transforms.RandomHorizontalFlip(),
+        transforms.ToTensor(),
+        transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+    ])
+elif args.bicubic:
+    transform_train = transforms.Compose([
+        #transforms.RandomCrop(96, padding=4),
+        transforms.RandomHorizontalFlip(),
+        transforms.ToTensor(),
+        transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+    ])
+else:
+    transform_train = transforms.Compose([
+        #transforms.RandomCrop(32, padding=4),
+        transforms.RandomHorizontalFlip(),
+        transforms.ToTensor(),
+        transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+    ])
 
 transform_test = transforms.Compose([
-    #GaussianNoise(),
-    #SuperResolve(model),
     transforms.ToTensor(),
     transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
 ])
 
+if args.super:
+    train_data, test_data = upsample.get_super()
+elif args.bicubic:
+    train_data, test_data = upsample.get_bicubic()
 
 trainset = torchvision.datasets.CIFAR10(root='./data', train=True, download=True, transform=transform_train)
-trainloader = torch.utils.data.DataLoader(trainset, batch_size=128, shuffle=True, num_workers=2)
+if args.super or args.bicubic:
+    trainset.train_data = train_data
+trainloader = torch.utils.data.DataLoader(trainset, batch_size=128, shuffle=True, num_workers=0)
 
 testset = torchvision.datasets.CIFAR10(root='./data', train=False, download=False, transform=transform_test)
-testloader = torch.utils.data.DataLoader(testset, batch_size=100, shuffle=False, num_workers=2)
+if args.super or args.bicubic:
+    testset.test_data = test_data
+testloader = torch.utils.data.DataLoader(testset, batch_size=100, shuffle=False, num_workers=0)
 
 classes = ('plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
 
@@ -106,8 +136,10 @@ if args.resume:
     start_epoch = checkpoint['epoch']
 else:
     print('==> Building model..')
-    net = VGG('VGG11') # 22s train, 2.3s test, 10.3% test after 1 epoch
-    #net = VGG('VGG11_96') # 22s train, 2.3s test, 10.3% test after 1 epoch
+    if args.super or args.bicubic:
+        net = VGG('VGG16_96') # 22s train, 2.3s test, 10.3% test after 1 epoch
+    else:
+        net = VGG('VGG16') # 22s train, 2.3s test, 10.3% test after 1 epoch
     #net = ResNet18() # 22s train, 2.5s test, 24.8% test after 1 epoch
     #net = ResNeXt29_2x64d() #50s train, 3.5s test, 40.6% test after 1 epoch
     #net = DenseNet121() #67s train, 5.6s test, 44.9% test after 1 epoch
@@ -170,6 +202,10 @@ def test(epoch):
     return correct/total
 
 
-for epoch in range(start_epoch, start_epoch+100):
+for epoch in range(start_epoch, start_epoch+350):
     train_acc = train(epoch)
     test_acc = test(epoch)
+    acc_dict["train"].append(train_acc)
+    acc_dict["test"].append(test_acc)
+    with open(stats_file, 'w', encoding='utf8') as fp:
+        json.dump(acc_dict, fp)

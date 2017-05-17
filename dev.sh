@@ -5,10 +5,9 @@
 #xauth nlist | sed -e 's/^..../ffff/' | xauth -f $XAUTH nmerge -
 
 gpudocker run \
- -i lj:tf -c /bin/bash \
+ -i lj:tf-lab -c /bin/bash \
  --docker_args="-it --rm \
  --name hw_`date +%F_%H-%M-%S` \
- --net=host \
  -v ${HOME}/.vimrc:/home/username/.vimrc \
  -v ${HOME}/.vim:/home/username/.vim \
  -v `pwd`:/home/username/work \
