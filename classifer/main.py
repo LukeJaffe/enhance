@@ -74,31 +74,31 @@ acc_dict = {"train": [], "test": []}
 
 stats_file = None
 if args.super:
-    stats_file = 'super_stats.json'
+    stats_file = 'super_stats2.json'
 elif args.bicubic:
-    stats_file = 'bicubic_stats.json'
+    stats_file = 'bicubic_stats2.json'
 else:
-    stats_file = 'regular_stats.json'
+    stats_file = 'regular_stats2.json'
 
 # Data
 print('==> Preparing data..')
 if args.super:
     transform_train = transforms.Compose([
-        #transforms.RandomCrop(96, padding=4),
+        transforms.RandomCrop(96, padding=12),
         transforms.RandomHorizontalFlip(),
         transforms.ToTensor(),
         transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
     ])
 elif args.bicubic:
     transform_train = transforms.Compose([
-        #transforms.RandomCrop(96, padding=4),
+        transforms.RandomCrop(96, padding=12),
         transforms.RandomHorizontalFlip(),
         transforms.ToTensor(),
         transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
     ])
 else:
     transform_train = transforms.Compose([
-        #transforms.RandomCrop(32, padding=4),
+        transforms.RandomCrop(32, padding=4),
         transforms.RandomHorizontalFlip(),
         transforms.ToTensor(),
         transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
@@ -201,7 +201,6 @@ def test(epoch):
     
     return correct/total
 
-
 for epoch in range(start_epoch, start_epoch+350):
     train_acc = train(epoch)
     test_acc = test(epoch)
@@ -209,3 +208,7 @@ for epoch in range(start_epoch, start_epoch+350):
     acc_dict["test"].append(test_acc)
     with open(stats_file, 'w', encoding='utf8') as fp:
         json.dump(acc_dict, fp)
+    if epoch == 150:
+        optimizer = optim.SGD(net.parameters(), lr=0.01, momentum=0.9, weight_decay=5e-4)
+    elif epoch == 250: 
+        optimizer = optim.SGD(net.parameters(), lr=0.001, momentum=0.9, weight_decay=5e-4)
