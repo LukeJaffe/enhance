@@ -4,8 +4,8 @@ import matplotlib.pyplot as plt
 import json
 
 reg_file = "regular_stats2.json"
-sup_file = "super_stats2.json"
-bic_file = "bicubic_stats2.json"
+sup_file = "super_stats3.json"
+bic_file = "bicubic_stats3.json"
 with open(reg_file, 'r') as fp:
     reg_dict = json.load(fp)
 with open(sup_file, 'r') as fp:
@@ -23,6 +23,9 @@ def moving_avg(data, run=20):
         avg_list.append(avg)
     return avg_list
         
+print "Max reg: {}".format(max(reg_dict["test"]))
+print "Max sup: {}".format(max(sup_dict["test"]))
+print "Max bic: {}".format(max(bic_dict["test"]))
 
 plt.subplot(311)
 plt.plot(reg_dict["train"], color='blue')
