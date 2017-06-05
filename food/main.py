@@ -47,15 +47,17 @@ stats_file = 'stats2.json'
 # Data
 print('==> Preparing data..')
 transform_train = transforms.Compose([
-    transforms.Scale(64),
-    transforms.RandomCrop(64, padding=8),
+    transforms.Scale(32),
+    transforms.Scale(128),
+    transforms.RandomCrop(128, padding=16),
     transforms.RandomHorizontalFlip(),
     transforms.ToTensor(),
     transforms.Normalize((0.53226813,  0.43759231,  0.34356611), (0.27382627,  0.27767733,  0.28433699))
 ])
 
 transform_test = transforms.Compose([
-    transforms.Scale(64),
+    transforms.Scale(32),
+    transforms.Scale(128),
     transforms.ToTensor(),
     transforms.Normalize((0.53226813,  0.43759231,  0.34356611), (0.27382627,  0.27767733,  0.28433699))
 ])
@@ -80,7 +82,7 @@ if args.resume:
     start_epoch = checkpoint['epoch']
 else:
     print('==> Building model..')
-    net = VGG('VGG19_64')
+    net = VGG('VGG16_128')
     #net = VGG('VGG11_48') # 22s train, 2.3s test, 10.3% test after 1 epoch
     #net = VGG('VGG19_64') # 22s train, 2.3s test, 10.3% test after 1 epoch
     #net = ResNet18() # 22s train, 2.5s test, 24.8% test after 1 epoch
